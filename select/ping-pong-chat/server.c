@@ -10,17 +10,17 @@
 #define FALSE 0
 #define PORT 8888
 
-void run(int sd, fd_set *readfds, int *client_socket);
+void run(int sd, fd_set *readfds, int *client_socket, int client_status[]);
 
 int main() {
-    int master_socket, addrlen, new_socket, client_socket[30], sd,
-        max_clients=30, max_sd, activity, i;
+    int master_socket, addrlen, new_socket, client_socket[30], client_status[30],
+        sd, max_clients=30, max_sd, activity, i;
     struct sockaddr_in address;
 
     // set of socket descriptors
     fd_set readfds;
 
-    for (i = 0; i < max_clients; i++) client_socket[i] = 0;
+    for (i = 0; i < max_clients; i++) client_socket[i] = client_status[i] = 0;
 
     // create a master socket
     if ((master_socket = socket(AF_INET, SOCK_STREAM, 0)) == 0) {
@@ -84,6 +84,8 @@ int main() {
             // add new socket to array of sockets
             for (i = 0; i < max_clients; i++) {
                 if (client_socket[i] == 0) {
+                    // set status as 1 (new)
+                    client_status[new_socket] = 1;
                     client_socket[i] = new_socket;
                     break;
                 }
@@ -93,27 +95,35 @@ int main() {
            for (i = 0; i < max_clients; i++) {
                sd = client_socket[i];
                if (FD_ISSET(sd, &readfds)) {
-                   run(sd, &readfds, &client_socket[i]);
+                   run(sd, &readfds, &client_socket[i], client_status);
                }
            }
         }
     }
 }
 
-void run(int sd, fd_set *readfds, int *client_socket) {
+void run(int sd, fd_set *readfds, int *client_socket, int client_status[]) {
     char buf[1024];
-    int nread;
-
-    nread = read(sd, buf, sizeof buf);
+    int nread = read(sd, buf, sizeof buf);
     buf[nread] = 0;
 
-    if (strcmp(buf, "ping") == 0) {
+    printf("buf: %s, client_status[sd]: %d\n", buf, client_status[sd]);
+
+    if (client_status[sd] == 1 && strcmp(buf, "ping") == 0) {
         write(sd, "pong", 4);
-    } else if (strcmp(buf, "pong") == 0) {
+        client_status[sd] = 2;
+    } else if (client_status[sd] == 2 && strcmp(buf, "pang") == 0) {
         write(sd, "pung", 4);
+        client_status[sd] = 3;
+    } else if (client_status[sd] == 3) {
+        // chatting
+        char msg[1024] = {0,};
+        sprintf(msg, "%s", buf);
+        write(sd, msg, strlen(msg));
     } else {
         write(sd, "protocol error", 14);
         *client_socket = 0;
+        client_status[sd] = 0;
         close(sd);
         FD_CLR(sd, readfds);
     }
